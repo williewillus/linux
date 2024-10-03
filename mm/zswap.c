@@ -931,7 +931,7 @@ unlock:
 	return comp_ret == 0 && alloc_ret == 0;
 }
 
-static bool zswap_decompress(struct zswap_entry *entry, struct folio *folio)
+static bool zswap_decompress(struct zswap_entry *entry, struct page *page)
 {
 	struct zswap_pool *pool = entry->pool;
 	struct scatterlist input, output;
@@ -944,7 +944,7 @@ static bool zswap_decompress(struct zswap_entry *entry, struct folio *folio)
 
 	/* zswap entries of length PAGE_SIZE are not compressed. */
 	if (entry->length == PAGE_SIZE) {
-		memcpy_to_folio(folio, 0, obj, entry->length);
+		memcpy_to_page(page, 0, obj, entry->length);
 		goto read_done;
 	}
 
@@ -963,7 +963,7 @@ static bool zswap_decompress(struct zswap_entry *entry, struct folio *folio)
 
 	sg_init_one(&input, src, entry->length);
 	sg_init_table(&output, 1);
-	sg_set_folio(&output, folio, PAGE_SIZE, 0);
+	sg_set_page(&output, page, PAGE_SIZE, 0);
 	acomp_request_set_params(acomp_ctx->req, &input, &output, entry->length, PAGE_SIZE);
 	decomp_ret = crypto_wait_req(crypto_acomp_decompress(acomp_ctx->req), &acomp_ctx->wait);
 	dlen = acomp_ctx->req->dlen;
@@ -1048,7 +1048,7 @@ static int zswap_writeback_entry(struct zswap_entry *entry,
 		goto out;
 	}
 
-	if (!zswap_decompress(entry, folio)) {
+	if (!zswap_decompress(entry, &folio->page)) {
 		ret = -EIO;
 		goto out;
 	}
@@ -1663,7 +1663,7 @@ int zswap_load(struct folio *folio)
 	if (!entry)
 		return -ENOENT;
 
-	if (!zswap_decompress(entry, folio)) {
+	if (!zswap_decompress(entry, &folio->page)) {
 		folio_unlock(folio);
 		return -EIO;
 	}
