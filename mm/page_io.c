@@ -4,7 +4,7 @@
  *
  *  Copyright (C) 1991, 1992, 1993, 1994  Linus Torvalds
  *
- *  Swap reorganised 29.12.95, 
+ *  Swap reorganised 29.12.95,
  *  Asynchronous swapping added 30.12.95. Stephen Tweedie
  *  Removed race in async swapping. 14.4.1996. Bruno Haible
  *  Add swap of shared pages through the page cache. 20.2.1998. Stephen Tweedie
@@ -633,8 +633,10 @@ void swap_read_folio(struct folio *folio, struct swap_iocb **plug)
 		goto finish;
 	}
 
-	if (zswap_load(folio) != -ENOENT)
+	if (zswap_load(folio) != -ENOENT) {
+		count_mthp_stat(folio_order(folio), MTHP_STAT_ZSWPIN);
 		goto finish;
+	}
 
 	/* We have to read from slower devices. Increase zswap protection. */
 	zswap_folio_swapin(folio);
