@@ -4435,6 +4435,7 @@ static bool can_swapin_thp(struct vm_fault *vmf, pte_t *ptep, int nr_pages)
 	swp_entry_t entry;
 	int idx;
 	pte_t pte;
+	int zswap_pages = 0;
 
 	addr = ALIGN_DOWN(vmf->address, nr_pages * PAGE_SIZE);
 	idx = (vmf->address - addr) / PAGE_SIZE;
@@ -4448,12 +4449,14 @@ static bool can_swapin_thp(struct vm_fault *vmf, pte_t *ptep, int nr_pages)
 
 	/*
 	 * swap_read_folio() can't handle the case a large folio is hybridly
-	 * from different backends. And they are likely corner cases. Similar
-	 * things might be added once zswap support large folios.
+	 * from different backends. And they are likely corner cases.
 	 */
 	if (unlikely(swap_zeromap_batch(entry, nr_pages, NULL) != nr_pages))
 		return false;
 	if (unlikely(non_swapcache_batch(entry, nr_pages) != nr_pages))
+		return false;
+	zswap_pages = zswap_present_batch(entry, nr_pages);
+	if (unlikely(zswap_pages > 0 && zswap_pages < nr_pages))
 		return false;
 
 	return true;
@@ -4499,14 +4502,6 @@ static struct folio *alloc_swap_folio(struct vm_fault *vmf)
 	 * maintain the uffd semantics.
 	 */
 	if (unlikely(userfaultfd_armed(vma)))
-		goto fallback;
-
-	/*
-	 * A large swapped out folio could be partially or fully in zswap. We
-	 * lack handling for such cases, so fallback to swapping in order-0
-	 * folio.
-	 */
-	if (!zswap_never_enabled())
 		goto fallback;
 
 	entry = pte_to_swp_entry(vmf->orig_pte);
@@ -4592,7 +4587,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	pte_t pte;
 	vm_fault_t ret = 0;
 	void *shadow = NULL;
-	int nr_pages;
+	int nr_pages, zswap_pages;
 	unsigned long page_idx;
 	unsigned long address;
 	pte_t *ptep;
@@ -4695,6 +4690,19 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 					remove_wait_queue(&swapcache_wq, &wait);
 					goto out_page;
 				}
+				/*
+				 * If the folio is only partially present in zswap
+				 * at this point, when it was fully present or fully
+				 * absent while checking in alloc_swap_folio, then
+				 * one of the folio pages has been written back
+				 * or invalidated. swap_read_folio doesn't support
+				 * reading pages from hybrid backends, hence try
+				 * again.
+				 */
+				zswap_pages = zswap_present_batch(entry, nr_pages);
+				if (unlikely(zswap_pages > 0 && zswap_pages < nr_pages))
+					goto out_page;
+
 				need_clear_cache = true;
 
 				memcg1_swapin(entry, nr_pages);
