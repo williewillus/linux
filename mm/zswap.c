@@ -1578,6 +1578,44 @@ check_old:
 	return ret;
 }
 
+/* Returns the number of pages in zswap */
+int zswap_present_batch(swp_entry_t swp, int nr_pages)
+{
+	int max_idx = 0, idx = 0, tree_offset = 0, res = 0;
+	pgoff_t offset = swp_offset(swp), max_tree_idx;
+	unsigned int type = swp_type(swp);
+	struct zswap_entry *entry = NULL;
+	struct xa_state xas;
+	struct xarray *tree;
+
+	while (idx < nr_pages) {
+		tree_offset = offset + idx;
+		tree = swap_zswap_tree(swp_entry(type, tree_offset));
+		xas = (struct xa_state) __XA_STATE(tree, tree_offset, 0, 0);
+		max_tree_idx = ALIGN(tree_offset + 1, ZSWAP_ADDRESS_SPACE_PAGES);
+		max_idx = min(offset + nr_pages, max_tree_idx) - 1;
+		rcu_read_lock();
+		xas_for_each(&xas, entry, max_idx) {
+			if (xas_retry(&xas, entry))
+				continue;
+			idx++;
+			/* entry exists, increment result */
+			res++;
+		}
+		rcu_read_unlock();
+		/*
+		 * If xas_for_each() exits because entry is NULL and
+		 * the number of entries checked are less than max idx,
+		 * then zswap does not contain that page. Increment idx
+		 * without incrementing result to check the next page.
+		 */
+		if (!entry && offset + idx <= max_idx)
+			idx++;
+	}
+
+	return res;
+}
+
 /**
  * zswap_load() - load a folio from zswap
  * @folio: folio to load
