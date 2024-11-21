@@ -1605,8 +1605,7 @@ static bool zram_meta_alloc(struct zram *zram, u64 disksize)
 		return false;
 	}
 
-	if (!huge_class_size)
-		huge_class_size = zs_huge_class_size(zram->mem_pool);
+	huge_class_size = zs_huge_class_size(zram->mem_pool, 0);
 
 	for (index = 0; index < num_pages; index++)
 		zram_slot_lock_init(zram, index);
