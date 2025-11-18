@@ -177,6 +177,14 @@ config ZSMALLOC_MULTI_PAGES_ORDER
 	  This option is used to configure zsmalloc to support the compression
 	  of multiple pages.
 
+config ZSWAP_MULTI_PAGES
+	bool "Batch compression in zswap"
+	depends on ZSWAP && ZSMALLOC_MULTI_PAGES
+	help
+	  Initially, zswap divided large folios into blocks of nr_pages, each sized
+	  equal to PAGE_SIZE, for compression. This option fine-tunes zswap to
+	  improve compression granularity by dividing large folios into larger
+	  parts defined by the configuration option ZSMALLOC_MULTI_PAGES_ORDER.
 endmenu
 
 endif
